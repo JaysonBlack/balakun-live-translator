@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<!--
+  Balakun Live Translator - Phase 1 Bench
+  Version: 1.0
+  MIT Licence - Copyright (c) 2026 Choc-Chilla
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Balakun Live Translator — Phase 1 Bench</title>
+<style>
+:root{
+  --bg:#0d0221;
+  --bg2:#1a0b3d;
+  --panel:rgba(26,11,61,.72);
+  --edge:rgba(185,103,255,.35);
+  --pink:#ff2e97;
+  --cyan:#00f0ff;
+  --purple:#b967ff;
+  --yellow:#ffe66d;
+  --text:#e8e3ff;
+  --dim:#8b7fb8;
+  --ok:#3ddc97;
+  --err:#ff4d6d;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
+  color:var(--text);
+  background:
+    linear-gradient(rgba(185,103,255,.05) 1px,transparent 1px) 0 0/100% 34px,
+    radial-gradient(ellipse at 50% 0%,#2a1060 0%,var(--bg) 62%);
+  background-color:var(--bg);
+  display:flex;flex-direction:column;
+  height:100vh;overflow:hidden;
+}
+h1{
+  margin:0;font-size:17px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--cyan);text-shadow:0 0 12px rgba(0,240,255,.55);font-weight:600;
+}
+header{
+  padding:12px 16px;border-bottom:1px solid var(--edge);
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  background:rgba(13,2,33,.6);
+}
+.spacer{flex:1}
+.pill{
+  font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+  padding:4px 10px;border-radius:999px;border:1px solid var(--edge);
+  color:var(--dim);white-space:nowrap;
+}
+.pill.live{color:var(--ok);border-color:rgba(61,220,151,.5);text-shadow:0 0 8px rgba(61,220,151,.5)}
+.pill.hot{color:var(--pink);border-color:rgba(255,46,151,.6);text-shadow:0 0 8px rgba(255,46,151,.6)}
+.pill.busy{color:var(--yellow);border-color:rgba(255,230,109,.5)}
+.pill.bad{color:var(--err);border-color:rgba(255,77,109,.6)}
+
+main{flex:1;overflow-y:auto;padding:14px 16px;min-height:0}
+main::-webkit-scrollbar{width:9px}
+main::-webkit-scrollbar-thumb{background:rgba(185,103,255,.35);border-radius:9px}
+
+.card{
+  background:var(--panel);border:1px solid var(--edge);border-radius:10px;
+  padding:14px;margin-bottom:14px;
+}
+.card h2{
+  margin:0 0 12px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--purple);font-weight:600;
+}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px}
+label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px;letter-spacing:.05em}
+input,select{
+  width:100%;padding:8px 10px;border-radius:6px;
+  background:rgba(13,2,33,.85);color:var(--text);
+  border:1px solid var(--edge);font-size:13px;font-family:inherit;
+}
+input:focus,select:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 2px rgba(0,240,255,.16)}
+input[type=range]{padding:0;height:26px}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.checks{display:flex;gap:16px;flex-wrap:wrap;margin-top:11px}
+.checks label{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text);cursor:pointer}
+.checks input{width:auto}
+
+button{
+  font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;padding:9px 16px;border-radius:6px;cursor:pointer;
+  background:transparent;color:var(--cyan);border:1px solid var(--cyan);
+  transition:.15s;
+}
+button:hover:not(:disabled){background:rgba(0,240,255,.14);box-shadow:0 0 14px rgba(0,240,255,.3)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.primary{color:var(--bg);background:var(--pink);border-color:var(--pink);box-shadow:0 0 18px rgba(255,46,151,.42)}
+button.primary:hover:not(:disabled){background:#ff56ab;box-shadow:0 0 26px rgba(255,46,151,.6)}
+button.ghost{color:var(--dim);border-color:var(--edge)}
+button.ghost:hover:not(:disabled){background:rgba(185,103,255,.12);color:var(--text)}
+
+.meterwrap{display:flex;align-items:center;gap:10px;margin-top:12px}
+.meter{
+  flex:1;height:12px;border-radius:6px;overflow:hidden;position:relative;
+  background:rgba(13,2,33,.85);border:1px solid var(--edge);
+}
+.meter .fill{
+  position:absolute;left:0;top:0;bottom:0;width:0%;
+  background:linear-gradient(90deg,var(--cyan),var(--purple),var(--pink));
+  transition:width .05s linear;
+}
+.meter .thr{
+  position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--yellow);
+  box-shadow:0 0 7px var(--yellow);left:0%;
+}
+
+.line{
+  border-left:3px solid var(--purple);padding:9px 0 9px 12px;margin-bottom:12px;
+  animation:slide .22s ease-out;
+}
+.line.uk{border-left-color:var(--yellow)}
+@keyframes slide{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+.line .meta{display:flex;gap:9px;align-items:center;font-size:10px;color:var(--dim);
+  letter-spacing:.09em;text-transform:uppercase;margin-bottom:5px}
+.line .tag{padding:1px 7px;border:1px solid var(--edge);border-radius:999px}
+.line .tag.uk{color:var(--yellow);border-color:rgba(255,230,109,.45)}
+.line .tag.en{color:var(--cyan);border-color:rgba(0,240,255,.45)}
+.line .primary{font-size:16px;line-height:1.45}
+.line .secondary{font-size:13px;line-height:1.45;color:var(--dim);margin-top:4px}
+.line .raw{font-size:11px;color:rgba(139,127,184,.65);margin-top:5px;font-style:italic}
+
+.log{
+  font-family:Consolas,"Courier New",monospace;font-size:11px;line-height:1.6;
+  max-height:170px;overflow-y:auto;color:var(--dim);
+  background:rgba(13,2,33,.7);border-radius:6px;padding:9px;
+}
+.log .e{color:var(--err)}
+.log .g{color:var(--ok)}
+.log .y{color:var(--yellow)}
+
+.stats{display:flex;gap:18px;flex-wrap:wrap;font-size:11px;color:var(--dim);margin-top:11px;
+  font-family:Consolas,monospace}
+.stats b{color:var(--cyan);font-weight:600}
+.note{font-size:11px;color:var(--dim);margin-top:7px;line-height:1.5}
+.empty{text-align:center;color:var(--dim);padding:36px 16px;font-size:13px}
+details summary{cursor:pointer;color:var(--purple);font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;font-weight:600;margin-bottom:10px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Balakun · Bench</h1>
+  <span class="pill" id="pillState">Idle</span>
+  <span class="pill" id="pillQueue">Queue 0</span>
+  <div class="spacer"></div>
+  <span class="pill" id="pillCost">$0.0000</span>
+</header>
+
+<main>
+
+  <div class="card">
+    <h2>Setup</h2>
+    <div class="grid">
+      <div>
+        <label for="apiKey">OpenAI API key</label>
+        <input type="password" id="apiKey" placeholder="sk-proj-..." autocomplete="off">
+      </div>
+      <div>
+        <label for="micSel">Microphone</label>
+        <select id="micSel"><option value="">System default</option></select>
+      </div>
+      <div>
+        <label for="langMode">Speech language</label>
+        <select id="langMode">
+          <option value="auto">Auto-detect (mixed)</option>
+          <option value="en">English only</option>
+          <option value="uk">Ukrainian only</option>
+        </select>
+      </div>
+      <div>
+        <label for="sttModel">Transcription model</label>
+        <select id="sttModel">
+          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe ($0.003/min)</option>
+          <option value="gpt-4o-transcribe">gpt-4o-transcribe ($0.006/min)</option>
+          <option value="whisper-1">whisper-1 ($0.006/min)</option>
+        </select>
+      </div>
+      <div>
+        <label for="chatModel">Translation model</label>
+        <input type="text" id="chatModel" value="gpt-4o-mini">
+      </div>
+      <div>
+        <label for="sens">VAD sensitivity <span id="sensVal" style="color:var(--cyan)">4.0</span></label>
+        <input type="range" id="sens" min="1.5" max="12" step="0.1" value="4">
+      </div>
+    </div>
+
+    <div class="checks">
+      <label><input type="checkbox" id="ecOn" checked> Echo cancellation</label>
+      <label><input type="checkbox" id="nsOn" checked> Noise suppression</label>
+      <label><input type="checkbox" id="agcOn"> Auto gain</label>
+    </div>
+
+    <div class="row" style="margin-top:13px">
+      <button class="primary" id="btnStart">Start listening</button>
+      <button id="btnStop" disabled>Stop</button>
+      <button class="ghost" id="btnTest">Test key</button>
+      <button class="ghost" id="btnSave">Download transcript</button>
+      <button class="ghost" id="btnClear">Clear</button>
+    </div>
+
+    <div class="meterwrap">
+      <span style="font-size:10px;color:var(--dim);letter-spacing:.09em">MIC</span>
+      <div class="meter"><div class="fill" id="mFill"></div><div class="thr" id="mThr"></div></div>
+    </div>
+
+    <div class="stats">
+      <span>rms <b id="sRms">0.0000</b></span>
+      <span>floor <b id="sFloor">0.0000</b></span>
+      <span>threshold <b id="sThr">0.0000</b></span>
+      <span>utterances <b id="sUtt">0</b></span>
+      <span>audio <b id="sSec">0.0s</b></span>
+    </div>
+
+    <p class="note">
+      Your key is stored only in this browser (localStorage) and sent only to api.openai.com.
+      The yellow marker on the meter is the speech threshold — speech should push the bar past it,
+      silence should not reach it.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Transcript</h2>
+    <div id="out"><div class="empty">Press <strong>Start listening</strong>, then speak a sentence and pause.</div></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Debug log</summary>
+      <div class="log" id="log"></div>
+    </details>
+  </div>
+
+</main>
+
+<script>
+/**
+ * Balakun Live Translator - Phase 1 Bench
+ * Version: 1.0
+ *
+ * Single-browser test rig. Captures the microphone, segments speech with an
+ * energy-based voice activity detector, transcribes each utterance via the
+ * OpenAI audio API, then classifies and translates it into English and
+ * Ukrainian. No relay, no peer, no encryption - that arrives in Phase 2.
+ *
+ * Purpose: tune VAD behaviour and measure real Ukrainian recognition quality
+ * before a second person is involved.
+ *
+ * MIT Licence - Copyright (c) 2026 Choc-Chilla
+ */
+
+// ---------------------------------------------------------------- constants
+
+const RING_SEC      = 30;     // circular audio buffer length
+const FRAME_MS      = 20;     // VAD analysis frame
+const START_FRAMES  = 8;      // ~160ms above threshold opens an utterance
+const END_FRAMES    = 40;     // ~800ms below threshold closes it
+const PREROLL_MS    = 300;    // audio kept before detected onset
+const TAILPAD_MS    = 200;    // silence kept after detected offset
+const MIN_UTT_MS    = 400;    // shorter than this is discarded
+const MAX_UTT_MS    = 20000;  // forced flush
+const ABS_FLOOR     = 0.004;  // absolute minimum threshold
+const TARGET_RATE   = 16000;  // sample rate sent to OpenAI
+
+const STT_PER_MIN = {
+  'gpt-4o-mini-transcribe': 0.003,
+  'gpt-4o-transcribe':      0.006,
+  'whisper-1':              0.006
+};
+const CHAT_IN_PER_1M  = 0.15;   // approximate
+const CHAT_OUT_PER_1M = 0.60;   // approximate
+
+const STT_PROMPT =
+  'Conversation between an English-speaking mentor and a Ukrainian student ' +
+  'practising English. Speech may be in English or Ukrainian.';
+
+const SYS_PROMPT = `You process single utterances from a live spoken conversation between an English-speaking mentor and a Ukrainian student practising English.
+
+The input text came from speech recognition and may contain errors, mishearings or fragments.
+
+Rules:
+- The speaker was speaking either English or Ukrainian. Those are the ONLY two possibilities.
+- Text that looks Russian is almost certainly Ukrainian that was mis-transcribed. Treat it as Ukrainian and render it as natural Ukrainian.
+- Repair obvious speech-recognition errors, but never add words the speaker did not say.
+- Translate naturally and conversationally, the way a person actually speaks - not word for word.
+- "original" is the cleaned text in the language actually spoken.
+- "en" is the English version; "uk" is the Ukrainian version. If the original is already in that language, use the cleaned original.
+- Set discard to true for noise, coughs, silence, or filler carrying no meaning.
+- Add no commentary, notes or explanation of any kind.`;
+
+// ---------------------------------------------------------------- state
+
+let audioCtx = null, stream = null, srcNode = null, procNode = null, sinkNode = null;
+let listening = false;
+
+let ring = null, ringLen = 0, ringWrite = 0, ringTotal = 0;
+let sampleRate = 48000, frameLen = 960;
+
+let vadBuf = new Float32Array(16384), vadLen = 0;
+let vState = 'silent', voiceRun = 0, silenceRun = 0;
+let uttStart = 0, noiseFloor = 0.01, lastRms = 0, lastThr = 0;
+
+let queue = [], working = false;
+let costTotal = 0, uttCount = 0, audioSeconds = 0;
+let history = [];
+
+const $ = id => document.getElementById(id);
+
+// ---------------------------------------------------------------- settings
+
+const FIELDS = ['apiKey','micSel','langMode','sttModel','chatModel','sens'];
+const CHECKS = ['ecOn','nsOn','agcOn'];
+
+function loadSettings(){
+  FIELDS.forEach(k=>{
+    const v = localStorage.getItem('blt_'+k);
+    if (v !== null && $(k)) $(k).value = v;
+  });
+  CHECKS.forEach(k=>{
+    const v = localStorage.getItem('blt_'+k);
+    if (v !== null && $(k)) $(k).checked = (v === '1');
+  });
+  $('sensVal').textContent = Number($('sens').value).toFixed(1);
+}
+function saveSettings(){
+  FIELDS.forEach(k=>{ if($(k)) localStorage.setItem('blt_'+k, $(k).value); });
+  CHECKS.forEach(k=>{ if($(k)) localStorage.setItem('blt_'+k, $(k).checked?'1':'0'); });
+}
+FIELDS.concat(CHECKS).forEach(k=>{
+  const el = $(k);
+  if (el) el.addEventListener('change', saveSettings);
+});
+$('sens').addEventListener('input', ()=>{
+  $('sensVal').textContent = Number($('sens').value).toFixed(1);
+});
+
+// ---------------------------------------------------------------- ui helpers
+
+function log(msg, cls){
+  const el = $('log');
+  const t = new Date().toLocaleTimeString();
+  const div = document.createElement('div');
+  if (cls) div.className = cls;
+  div.textContent = `${t}  ${msg}`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  while (el.children.length > 300) el.removeChild(el.firstChild);
+}
+
+function setState(text, cls){
+  const p = $('pillState');
+  p.textContent = text;
+  p.className = 'pill' + (cls ? ' ' + cls : '');
+}
+
+function updateStats(){
+  $('sRms').textContent   = lastRms.toFixed(4);
+  $('sFloor').textContent = noiseFloor.toFixed(4);
+  $('sThr').textContent   = lastThr.toFixed(4);
+  $('sUtt').textContent   = uttCount;
+  $('sSec').textContent   = audioSeconds.toFixed(1) + 's';
+  $('pillCost').textContent = '$' + costTotal.toFixed(4);
+  $('pillQueue').textContent = 'Queue ' + (queue.length + (working?1:0));
+}
+
+function meterLoop(){
+  if (listening){
+    const pct = Math.min(100, (lastRms / 0.25) * 100);
+    $('mFill').style.width = pct.toFixed(1) + '%';
+    $('mThr').style.left = Math.min(100,(lastThr / 0.25)*100).toFixed(1) + '%';
+    updateStats();
+  }
+  requestAnimationFrame(meterLoop);
+}
+requestAnimationFrame(meterLoop);
+
+// ---------------------------------------------------------------- ring buffer
+
+function ringInit(rate){
+  ringLen = Math.ceil(RING_SEC * rate);
+  ring = new Float32Array(ringLen);
+  ringWrite = 0; ringTotal = 0;
+}
+
+function ringPush(chunk){
+  for (let i = 0; i < chunk.length; i++){
+    ring[ringWrite] = chunk[i];
+    ringWrite = (ringWrite + 1) % ringLen;
+  }
+  ringTotal += chunk.length;
+}
+
+function ringSlice(absStart, absEnd){
+  const oldest = Math.max(0, ringTotal - ringLen);
+  const s = Math.max(absStart, oldest);
+  const e = Math.min(absEnd, ringTotal);
+  if (e <= s) return new Float32Array(0);
+  const out = new Float32Array(e - s);
+  let idx = ((ringWrite - (ringTotal - s)) % ringLen + ringLen) % ringLen;
+  for (let i = 0; i < out.length; i++){
+    out[i] = ring[idx];
+    idx = (idx + 1) % ringLen;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- vad
+
+function rmsOf(frame){
+  let sum = 0;
+  for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
+  return Math.sqrt(sum / frame.length);
+}
+
+function vadFeed(chunk, absStart){
+  if (vadLen + chunk.length > vadBuf.length){
+    const bigger = new Float32Array(Math.max(vadBuf.length * 2, vadLen + chunk.length));
+    bigger.set(vadBuf.subarray(0, vadLen));
+    vadBuf = bigger;
+  }
+  vadBuf.set(chunk, vadLen);
+  vadLen += chunk.length;
+
+  let consumed = 0;
+  while (vadLen - consumed >= frameLen){
+    processFrame(vadBuf.subarray(consumed, consumed + frameLen), absStart + consumed);
+    consumed += frameLen;
+  }
+  if (consumed > 0){
+    vadBuf.copyWithin(0, consumed, vadLen);
+    vadLen -= consumed;
+  }
+}
+
+function processFrame(frame, absPos){
+  const rms = rmsOf(frame);
+  lastRms = rms;
+
+  if (vState === 'silent'){
+    if (rms < noiseFloor) noiseFloor = noiseFloor * 0.90 + rms * 0.10;
+    else                  noiseFloor = noiseFloor * 0.9995 + rms * 0.0005;
+    noiseFloor = Math.max(noiseFloor, 1e-5);
+  }
+
+  const sens = Number($('sens').value);
+  const thr = Math.max(noiseFloor * sens, ABS_FLOOR);
+  lastThr = thr;
+
+  const voiced = rms > thr;
+  const preroll = Math.round(PREROLL_MS / 1000 * sampleRate);
+  const tailpad = Math.round(TAILPAD_MS / 1000 * sampleRate);
+
+  if (vState === 'silent'){
+    if (voiced){
+      voiceRun++;
+      if (voiceRun >= START_FRAMES){
+        vState = 'speech';
+        silenceRun = 0;
+        uttStart = Math.max(0, absPos - START_FRAMES * frameLen - preroll);
+        setState('Speaking', 'hot');
+        log('speech start');
+      }
+    } else {
+      voiceRun = 0;
+    }
+    return;
+  }
+
+  // in speech
+  if (voiced){
+    silenceRun = 0;
+  } else {
+    silenceRun++;
+    if (silenceRun >= END_FRAMES){
+      const end = absPos + frameLen - (END_FRAMES * frameLen) + tailpad;
+      closeUtterance(uttStart, end);
+      return;
+    }
+  }
+
+  if ((absPos + frameLen - uttStart) > (MAX_UTT_MS / 1000 * sampleRate)){
+    log('max length reached, flushing', 'y');
+    closeUtterance(uttStart, absPos + frameLen);
+  }
+}
+
+function closeUtterance(start, end){
+  vState = 'silent';
+  voiceRun = 0; silenceRun = 0;
+  setState('Listening', 'live');
+
+  const samples = ringSlice(start, end);
+  const ms = samples.length / sampleRate * 1000;
+  if (ms < MIN_UTT_MS){
+    log(`discarded short utterance (${ms|0}ms)`);
+    return;
+  }
+  log(`utterance captured ${(ms/1000).toFixed(1)}s`, 'g');
+  uttCount++;
+  audioSeconds += ms / 1000;
+  queue.push(samples);
+  pump();
+}
+
+// ---------------------------------------------------------------- resample + wav
+
+function resample(input, from, to){
+  if (from === to) return input;
+  const ratio = from / to;
+  const outLen = Math.floor(input.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++){
+    const start = i * ratio;
+    const stop  = start + ratio;
+    let sum = 0, n = 0;
+    for (let j = Math.floor(start); j < stop && j < input.length; j++){ sum += input[j]; n++; }
+    out[i] = n ? sum / n : 0;
+  }
+  return out;
+}
+
+function encodeWav(samples, rate){
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const dv = new DataView(buf);
+  const str = (off, s) => { for (let i=0;i<s.length;i++) dv.setUint8(off+i, s.charCodeAt(i)); };
+  str(0,'RIFF');
+  dv.setUint32(4, 36 + samples.length * 2, true);
+  str(8,'WAVE'); str(12,'fmt ');
+  dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true);
+  dv.setUint16(22, 1, true);
+  dv.setUint32(24, rate, true);
+  dv.setUint32(28, rate * 2, true);
+  dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true);
+  str(36,'data');
+  dv.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++){
+    const v = Math.max(-1, Math.min(1, samples[i]));
+    dv.setInt16(off, v < 0 ? v * 0x8000 : v * 0x7FFF, true);
+    off += 2;
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+// ---------------------------------------------------------------- openai
+
+async function transcribe(wav, seconds){
+  const key   = $('apiKey').value.trim();
+  const model = $('sttModel').value;
+  const mode  = $('langMode').value;
+
+  const fd = new FormData();
+  fd.append('file', wav, 'utterance.wav');
+  fd.append('model', model);
+  fd.append('prompt', STT_PROMPT);
+  if (mode !== 'auto') fd.append('language', mode);
+
+  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key },
+    body: fd
+  });
+  if (!res.ok){
+    const t = await res.text();
+    throw new Error(`transcription ${res.status}: ${t.slice(0,200)}`);
+  }
+  const data = await res.json();
+  costTotal += (STT_PER_MIN[model] || 0.006) * (seconds / 60);
+  return (data.text || '').trim();
+}
+
+async function translate(text){
+  const key = $('apiKey').value.trim();
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: $('chatModel').value.trim() || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: SYS_PROMPT },
+        { role: 'user',   content: text }
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'utterance',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: {
+              detected: { type: 'string', enum: ['en','uk'] },
+              original: { type: 'string' },
+              en:       { type: 'string' },
+              uk:       { type: 'string' },
+              discard:  { type: 'boolean' }
+            },
+            required: ['detected','original','en','uk','discard'],
+            additionalProperties: false
+          }
+        }
+      }
+    })
+  });
+  if (!res.ok){
+    const t = await res.text();
+    throw new Error(`translation ${res.status}: ${t.slice(0,200)}`);
+  }
+  const data = await res.json();
+  if (data.usage){
+    costTotal += data.usage.prompt_tokens     / 1e6 * CHAT_IN_PER_1M;
+    costTotal += data.usage.completion_tokens / 1e6 * CHAT_OUT_PER_1M;
+  }
+  return JSON.parse(data.choices[0].message.content);
+}
+
+// ---------------------------------------------------------------- pipeline
+
+async function pump(){
+  if (working || queue.length === 0) return;
+  working = true;
+  updateStats();
+
+  const samples = queue.shift();
+  const seconds = samples.length / sampleRate;
+
+  try {
+    setState('Transcribing','busy');
+    const down = resample(samples, sampleRate, TARGET_RATE);
+    const wav  = encodeWav(down, TARGET_RATE);
+    log(`sending ${(wav.size/1024|0)}KB (${seconds.toFixed(1)}s)`);
+
+    const t0 = performance.now();
+    const raw = await transcribe(wav, seconds);
+    const t1 = performance.now();
+
+    if (!raw){
+      log('empty transcription, skipped');
+    } else {
+      log(`stt ${((t1-t0)/1000).toFixed(1)}s: "${raw.slice(0,60)}"`);
+      setState('Translating','busy');
+      const r = await translate(raw);
+      const t2 = performance.now();
+      log(`llm ${((t2-t1)/1000).toFixed(1)}s | total ${((t2-t0)/1000).toFixed(1)}s`, 'g');
+
+      if (r.discard) log('marked as noise, discarded', 'y');
+      else render(r, raw);
+    }
+  } catch (err){
+    log(String(err.message || err), 'e');
+    setState('Error','bad');
+  }
+
+  working = false;
+  updateStats();
+  if (listening) setState('Listening','live');
+  if (queue.length) pump();
+}
+
+function render(r, raw){
+  const out = $('out');
+  const empty = out.querySelector('.empty');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  div.className = 'line' + (r.detected === 'uk' ? ' uk' : '');
+  const time = new Date().toLocaleTimeString();
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.innerHTML = `<span class="tag ${r.detected}">${r.detected.toUpperCase()}</span><span>${time}</span>`;
+
+  const primary = document.createElement('div');
+  primary.className = 'primary';
+  primary.textContent = r.en;
+
+  const secondary = document.createElement('div');
+  secondary.className = 'secondary';
+  secondary.textContent = r.uk;
+
+  div.appendChild(meta);
+  div.appendChild(primary);
+  div.appendChild(secondary);
+
+  if (raw && raw !== r.original){
+    const rawEl = document.createElement('div');
+    rawEl.className = 'raw';
+    rawEl.textContent = 'heard: ' + raw;
+    div.appendChild(rawEl);
+  }
+
+  out.appendChild(div);
+  out.parentElement.scrollIntoView({ block:'end', behavior:'smooth' });
+  history.push({ time, detected:r.detected, raw, en:r.en, uk:r.uk });
+}
+
+// ---------------------------------------------------------------- audio
+
+async function listDevices(){
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const sel = $('micSel');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">System default</option>';
+    devs.filter(d => d.kind === 'audioinput').forEach(d => {
+      const o = document.createElement('option');
+      o.value = d.deviceId;
+      o.textContent = d.label || `Microphone ${sel.length}`;
+      sel.appendChild(o);
+    });
+    if (current) sel.value = current;
+  } catch (e){ log('device list failed: ' + e.message, 'e'); }
+}
+
+async function start(){
+  if (!$('apiKey').value.trim()){
+    log('no API key entered', 'e');
+    setState('No key','bad');
+    return;
+  }
+  try {
+    const devId = $('micSel').value;
+    const constraints = {
+      audio: {
+        echoCancellation: $('ecOn').checked,
+        noiseSuppression: $('nsOn').checked,
+        autoGainControl:  $('agcOn').checked,
+        channelCount: 1
+      }
+    };
+    if (devId) constraints.audio.deviceId = { exact: devId };
+
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    await listDevices();
+
+    audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+    await audioCtx.resume();
+    sampleRate = audioCtx.sampleRate;
+    frameLen   = Math.round(FRAME_MS / 1000 * sampleRate);
+
+    ringInit(sampleRate);
+    vadLen = 0; vState = 'silent'; voiceRun = 0; silenceRun = 0;
+    noiseFloor = 0.01;
+
+    srcNode  = audioCtx.createMediaStreamSource(stream);
+    procNode = audioCtx.createScriptProcessor(4096, 1, 1);
+    sinkNode = audioCtx.createGain();
+    sinkNode.gain.value = 0;
+
+    procNode.onaudioprocess = e => {
+      if (!listening) return;
+      const input = e.inputBuffer.getChannelData(0);
+      const chunk = new Float32Array(input);
+      const absStart = ringTotal;
+      ringPush(chunk);
+      vadFeed(chunk, absStart);
+    };
+
+    srcNode.connect(procNode);
+    procNode.connect(sinkNode);
+    sinkNode.connect(audioCtx.destination);
+
+    listening = true;
+    $('btnStart').disabled = true;
+    $('btnStop').disabled  = false;
+    setState('Listening','live');
+    log(`started — ${sampleRate}Hz, frame ${frameLen} samples`, 'g');
+    log('stay quiet for two seconds so the noise floor can settle');
+  } catch (err){
+    log('start failed: ' + (err.message || err), 'e');
+    setState('Mic blocked','bad');
+  }
+}
+
+function stop(){
+  listening = false;
+  try { if (procNode) procNode.disconnect(); } catch(e){}
+  try { if (srcNode)  srcNode.disconnect();  } catch(e){}
+  try { if (sinkNode) sinkNode.disconnect(); } catch(e){}
+  try { if (stream)   stream.getTracks().forEach(t => t.stop()); } catch(e){}
+  try { if (audioCtx) audioCtx.close(); } catch(e){}
+  procNode = srcNode = sinkNode = stream = audioCtx = null;
+  $('btnStart').disabled = false;
+  $('btnStop').disabled  = true;
+  setState('Idle');
+  log('stopped');
+}
+
+// ---------------------------------------------------------------- buttons
+
+$('btnStart').addEventListener('click', start);
+$('btnStop').addEventListener('click', stop);
+
+$('btnTest').addEventListener('click', async () => {
+  const key = $('apiKey').value.trim();
+  if (!key){ log('no API key entered','e'); return; }
+  setState('Testing','busy');
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+key, 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        model: $('chatModel').value.trim() || 'gpt-4o-mini',
+        messages:[{ role:'user', content:'Reply with the single word: ready' }],
+        max_tokens: 5
+      })
+    });
+    if (!res.ok){
+      const t = await res.text();
+      log(`key test failed ${res.status}: ${t.slice(0,200)}`,'e');
+      setState('Key failed','bad');
+    } else {
+      const d = await res.json();
+      log('key OK — model replied: ' + d.choices[0].message.content.trim(),'g');
+      setState('Key OK','live');
+    }
+  } catch (e){
+    log('key test error: ' + e.message,'e');
+    setState('Key failed','bad');
+  }
+});
+
+$('btnSave').addEventListener('click', () => {
+  if (!history.length){ log('nothing to save'); return; }
+  const lines = history.map(h =>
+    `[${h.time}] (${h.detected})\n  heard: ${h.raw}\n  EN:    ${h.en}\n  UK:    ${h.uk}\n`
+  );
+  const blob = new Blob([`Balakun Live Translator — bench transcript\n\n${lines.join('\n')}`],
+                        { type:'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'balakun-bench-' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.txt';
+  a.click();
+});
+
+$('btnClear').addEventListener('click', () => {
+  history = [];
+  $('out').innerHTML = '<div class="empty">Cleared.</div>';
+  $('log').innerHTML = '';
+  costTotal = 0; uttCount = 0; audioSeconds = 0;
+  updateStats();
+});
+
+// ---------------------------------------------------------------- init
+
+loadSettings();
+updateStats();
+log('bench v1.0 ready');
+if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+  log('this browser has no microphone API — use Chrome or Edge','e');
+}
+</script>
+</body>
+</html>

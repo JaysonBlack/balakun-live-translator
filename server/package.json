@@ -1,0 +1,15 @@
+{
+  "name": "balakun-relay",
+  "version": "1.0.0",
+  "description": "Blind WebSocket relay for Balakun Live Translator",
+  "private": true,
+  "type": "module",
+  "main": "relay.js",
+  "scripts": {
+    "start": "node relay.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -1,27 +1,60 @@
 /**
  * Balakun Live Translator — Relay Server (Deno Deploy edition)
- * Version: 1.0-deno
+ * Version: 1.1-deno  (INSTRUMENTED — diagnostic build)
  *
  * A blind message forwarder. Pairs two clients in a room and passes
  * encrypted payloads between them. It cannot read anything it carries:
  * clients derive their key from a room code the relay never receives.
  *
- * Stores nothing. Logs nothing but connection counts.
+ * v1.1 adds ONLY diagnostics — the pairing logic is unchanged from v1.0:
+ *   - a per-isolate ID (ISOLATE_ID), unique to each running instance
+ *   - that ID + roomId printed on every join/leave (read in the Logs tab)
+ *   - a /whereami endpoint reporting this isolate's ID and boot time
+ *   - the isolate ID included in the "joined" message sent to the client
  *
- * Runs on Deno Deploy with no dependencies — Deno upgrades WebSockets
- * natively, so there is no `ws` library to install.
- *
- * Endpoints:
- *   GET /health   -> "ok"
- *   GET /         -> "ok" (so the base URL is easy to sanity-check)
- *   WS  (upgrade) -> relay
+ * Purpose: prove whether two clients land on the SAME isolate or DIFFERENT
+ * isolates. Different isolates = the rooms Map is not shared = the pairing
+ * failure we are chasing.
  *
  * MIT Licence — Copyright (c) 2026 Choc-Chilla
  */
 
 const MAX_MEMBERS = 2;
 
-/** roomId (32 hex chars) -> Set<WebSocket> */
+// A random ID for THIS running isolate. If two clients report different
+// values, they are being served by different instances that do not share
+// the in-memory rooms map below.
+const ISOLATE_ID = crypto.randomUUID().slice(0, 8);
+const BOOT_TIME = new Date().toISOString();
+
+// Best-effort region/environment probe. The new Deno Deploy does not
+// document a region variable, so several are tried; ISOLATE_ID is the
+// reliable discriminator regardless.
+function regionInfo() {
+  const keys = [
+    "DENO_REGION",
+    "DENO_DEPLOYMENT_ID",
+    "DENO_DEPLOY_REVISION_ID",
+    "DENO_DEPLOY_APP_SLUG",
+  ];
+  const out = {};
+  for (const k of keys) {
+    try {
+      const v = Deno.env.get(k);
+      if (v) out[k] = v;
+    } catch {
+      /* env not permitted — ignore */
+    }
+  }
+  return out;
+}
+const REGION = regionInfo();
+
+console.log(
+  `[relay] isolate ${ISOLATE_ID} booted at ${BOOT_TIME} — region info: ${JSON.stringify(REGION)}`,
+);
+
+/** roomId (32 hex chars) -> Set<WebSocket>  (LOCAL to this isolate only) */
 const rooms = new Map();
 
 function send(ws, obj) {
@@ -42,7 +75,9 @@ function leaveRoom(ws) {
   for (const peer of room) send(peer, { v: 1, type: "peer-left" });
   if (room.size === 0) rooms.delete(id);
 
-  console.log(`[relay] leave — rooms:${rooms.size}`);
+  console.log(
+    `[relay] LEAVE  isolate=${ISOLATE_ID} room=${id.slice(0, 8)} localMembers=${room.size} totalRooms=${rooms.size}`,
+  );
 }
 
 function handleSocket(ws) {
@@ -80,11 +115,22 @@ function handleSocket(ws) {
       room.add(ws);
       ws.__roomId = id;
 
-      send(ws, { v: 1, type: "joined", peers: room.size - 1 });
+      // The isolate ID rides along in the joined message so the client's
+      // debug log can show it too.
+      send(ws, {
+        v: 1,
+        type: "joined",
+        peers: room.size - 1,
+        isolate: ISOLATE_ID,
+        region: REGION,
+      });
       for (const peer of room) {
         if (peer !== ws) send(peer, { v: 1, type: "peer-joined" });
       }
-      console.log(`[relay] join  — rooms:${rooms.size}`);
+
+      console.log(
+        `[relay] JOIN   isolate=${ISOLATE_ID} room=${id.slice(0, 8)} localMembers=${room.size} totalRooms=${rooms.size}`,
+      );
       return;
     }
 
@@ -113,6 +159,21 @@ Deno.serve((req) => {
 
   // Plain HTTP checks
   if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+    if (url.pathname === "/whereami") {
+      return new Response(
+        JSON.stringify(
+          {
+            isolate: ISOLATE_ID,
+            booted: BOOT_TIME,
+            localRooms: rooms.size,
+            region: REGION,
+          },
+          null,
+          2,
+        ),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
     if (url.pathname === "/health" || url.pathname === "/") {
       return new Response("ok", {
         status: 200,
@@ -128,4 +189,4 @@ Deno.serve((req) => {
   return response;
 });
 
-console.log("Balakun relay (Deno) ready");
+console.log(`Balakun relay (Deno) v1.1 ready — isolate ${ISOLATE_ID}`);

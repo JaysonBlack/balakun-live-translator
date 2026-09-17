@@ -696,13 +696,15 @@ function connect(){
   wsUrl=normRelay($('relayUrl').value);
   if(!wsUrl){ log('no relay address','e'); return; }
   pill('pillNet','Connecting','busy');
-  try{ ws=new WebSocket(wsUrl + '/' + roomId); }
+  const fullUrl = wsUrl + '/' + roomId;
+  log('connecting to '+fullUrl);
+  try{ ws=new WebSocket(fullUrl); }
   catch(e){ log('bad relay address: '+e.message,'e'); pill('pillNet','Bad address','bad'); return; }
 
   ws.onopen=()=>{
     connected=true; retry=0;
     pill('pillNet','Connected','live');
-    log('relay connected','g');
+    log('SOCKET OPEN — sending join','g');
     ws.send(JSON.stringify({v:1,type:'join',roomId}));
   };
   ws.onmessage=async ev=>{
@@ -733,18 +735,19 @@ function connect(){
     catch(e){ log('could not decrypt — room codes do not match','e'); return; }
     handlePayload(p);
   };
-  ws.onclose=()=>{
+  ws.onclose=(ev)=>{
     connected=false; peerHere=false; peerSpeaking=false;
     pill('pillPeer','No partner');
+    log('SOCKET CLOSED — code='+ev.code+' reason="'+(ev.reason||'')+'" clean='+ev.wasClean,'e');
     if(!wantConnect){ pill('pillNet','Offline'); return; }
     retry=Math.min(retry+1,6);
     const wait=Math.min(30000,1000*Math.pow(2,retry-1));
     pill('pillNet','Reconnecting','busy');
-    log(`disconnected — retrying in ${wait/1000}s`,'y');
+    log(`reconnecting in ${wait/1000}s`,'y');
     clearTimeout(retryTimer);
     retryTimer=setTimeout(()=>{ if(wantConnect) connect(); },wait);
   };
-  ws.onerror=()=>{ log('relay socket error','e'); };
+  ws.onerror=()=>{ log('SOCKET ERROR event','e'); };
 }
 
 async function handlePayload(p){

@@ -173,7 +173,7 @@ details summary{cursor:pointer;color:var(--purple);font-size:11px;letter-spacing
       <div class="grid">
         <div>
           <label for="relayUrl">Relay address</label>
-          <input type="text" id="relayUrl" placeholder="https://xxxx.trycloudflare.com">
+          <input type="text" id="relayUrl" placeholder="https://balakun-relay.balakun-relay.workers.dev">
         </div>
         <div>
           <label for="roomCode">Room code</label>
@@ -696,7 +696,9 @@ function connect(){
   wsUrl=normRelay($('relayUrl').value);
   if(!wsUrl){ log('no relay address','e'); return; }
   pill('pillNet','Connecting','busy');
-  try{ ws=new WebSocket(wsUrl); }
+  const fullUrl = wsUrl + '/' + roomId;
+  log('connecting to '+fullUrl);
+  try{ ws=new WebSocket(fullUrl); }
   catch(e){ log('bad relay address: '+e.message,'e'); pill('pillNet','Bad address','bad'); return; }
 
   ws.onopen=()=>{
@@ -916,6 +918,7 @@ $('btnFontDown').addEventListener('click',()=>setFont(parseInt(getComputedStyle(
 // ---------------------------------------------------------------- init
 
 loadSettings();
+if(!$('relayUrl').value){ $('relayUrl').value='https://balakun-relay.balakun-relay.workers.dev'; }
 
 (function fromHash(){
   if(!location.hash) return;
@@ -931,7 +934,7 @@ loadSettings();
 })();
 
 stats();
-log('Balakun Live Translator v2.0 ready');
+log('Balakun Live Translator v2.1 ready');
 if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
   log('this browser has no microphone support — use Chrome or Edge','e');
 }

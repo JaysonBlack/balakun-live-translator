@@ -253,6 +253,7 @@ details summary{cursor:pointer;color:var(--purple);font-size:11px;letter-spacing
   <div class="row">
     <button class="primary" id="btnMic">Start mic</button>
     <button class="ghost" id="btnSave">Save transcript</button>
+    <button class="ghost" id="btnSaveLog">Save log</button>
     <button class="ghost" id="btnLeave">Leave</button>
     <div class="spacer"></div>
   </div>
@@ -360,12 +361,62 @@ $('sens').addEventListener('input',()=>{$('sensVal').textContent=Number($('sens'
 
 // ---------------------------------------------------------------- ui utils
 
+const APP_VER='2.2';
+const sessLog=[]; let sessStart=new Date(), logDirty=false, prevLogText='';
+const LS_CUR='blt2_lastlog', LS_PREV='blt2_log_prev', LS_SAVED='blt2_lastlog_saved';
+function pad2(n){return String(n).padStart(2,'0');}
+function fileStamp(d){return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+'_'+pad2(d.getHours())+'-'+pad2(d.getMinutes())+'-'+pad2(d.getSeconds());}
 function log(m,c){
+  const now=new Date();
+  const ts=pad2(now.getHours())+':'+pad2(now.getMinutes())+':'+pad2(now.getSeconds())+'.'+String(now.getMilliseconds()).padStart(3,'0');
+  sessLog.push((c==='e'?'ERR  ':c==='y'?'WARN ':'     ')+ts+'  '+m);
+  if(sessLog.length>20000) sessLog.shift();
+  logDirty=true;
   const el=$('log'), d=document.createElement('div');
   if(c)d.className=c;
-  d.textContent=new Date().toLocaleTimeString()+'  '+m;
+  d.textContent=now.toLocaleTimeString()+'  '+m;
   el.appendChild(d); el.scrollTop=el.scrollHeight;
   while(el.children.length>250) el.removeChild(el.firstChild);
+}
+// Keep the log across crashes / closed tabs: stash anything unsaved from an earlier page load.
+(function stashPrevious(){
+  try{
+    const cur=localStorage.getItem(LS_CUR), saved=localStorage.getItem(LS_SAVED);
+    let prev=localStorage.getItem(LS_PREV)||'';
+    if(cur && saved!=='1') prev=(prev+'\n'+cur).slice(-400000);
+    if(prev) localStorage.setItem(LS_PREV,prev);
+    localStorage.removeItem(LS_CUR);
+    prevLogText=prev;
+  }catch(e){}
+})();
+function logHeader(){
+  let px='?'; try{ px=useProxy(); }catch(e){}
+  return ['Balakun Live Translator — session log',
+    'app v'+APP_VER+'   started '+sessStart.toString(),
+    'client '+(()=>{try{return clientId}catch(e){return '-'}})()+'   relay '+($('relayUrl').value||'?')+'   room '+(roomId?roomId.slice(0,8):'-'),
+    'proxy mode: '+px+'   stt '+$('sttModel').value+'   chat '+$('chatModel').value,
+    navigator.userAgent,''].join('\n');
+}
+function persistLog(){
+  if(!logDirty) return;
+  try{ localStorage.setItem(LS_CUR,logHeader()+'\n'+sessLog.slice(-5000).join('\n')); localStorage.setItem(LS_SAVED,'0'); logDirty=false; }catch(e){}
+}
+setInterval(persistLog,5000);
+window.addEventListener('pagehide',persistLog);
+function saveLog(auto){
+  const name='balakun-log-'+fileStamp(sessStart)+'.txt';
+  log((auto?'log saved automatically: ':'log saved: ')+name,'g');
+  let txt=logHeader()+'\n';
+  if(prevLogText) txt+='\n===== EARLIER SESSION(S) THAT WERE NEVER SAVED =====\n'+prevLogText+'\n===== THIS SESSION =====\n';
+  txt+=sessLog.join('\n')+'\n';
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));
+  a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  prevLogText='';
+  try{ localStorage.removeItem(LS_PREV); localStorage.removeItem(LS_CUR); localStorage.setItem(LS_SAVED,'1'); }catch(e){}
+  if(auto){ sessLog.length=0; sessStart=new Date(); logDirty=false; }
 }
 function pill(id,text,cls){const p=$(id); p.textContent=text; p.className='pill'+(cls?' '+cls:'');}
 function stats(){
@@ -684,49 +735,112 @@ function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','
 
 // ---------------------------------------------------------------- relay
 
+const clientId=Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('');
+let lastRx=0, hbTimer=null, stableTimer=null, roomFull=false, echoDropped=0;
+const MAX_RETRY=12, HB_MS=15000, SILENT_MS=90000;
+
 async function sendData(obj){
   if(!ws||ws.readyState!==WebSocket.OPEN) return;
-  const p=await seal(obj);
+  const p=await seal(Object.assign({cid:clientId},obj));
+  if(!ws||ws.readyState!==WebSocket.OPEN) return;
   ws.send(JSON.stringify({v:1,type:'data',roomId,iv:p.iv,ct:p.ct}));
 }
 function sendCtrl(obj){ sendData(obj).catch(()=>{}); }
 
+function stopHeartbeat(){ clearInterval(hbTimer); hbTimer=null; clearTimeout(stableTimer); stableTimer=null; }
+function startHeartbeat(sock){
+  stopHeartbeat();
+  lastRx=Date.now();
+  hbTimer=setInterval(()=>{
+    if(sock!==ws){ stopHeartbeat(); return; }
+    const quiet=Date.now()-lastRx;
+    if(quiet>SILENT_MS){
+      log('relay silent for '+Math.round(quiet/1000)+'s — reconnecting','y');
+      sock.onopen=sock.onmessage=sock.onclose=sock.onerror=null;
+      try{ sock.close(); }catch(e){}
+      socketGone(sock,'silent');
+      return;
+    }
+    try{ sock.send(JSON.stringify({v:1,type:'ping'})); }catch(e){}
+  },HB_MS);
+}
+
+// Drop the current socket completely (handlers detached so it can never call back).
+function killSocket(){
+  clearTimeout(retryTimer); stopHeartbeat();
+  const s=ws; ws=null;
+  if(s){ s.onopen=s.onmessage=s.onclose=s.onerror=null; try{ s.close(1000,'replaced'); }catch(e){} }
+  connected=false; peerHere=false; peerSpeaking=false;
+}
+
+function socketGone(sock,why){
+  if(sock!==ws) return;                 // an old socket — ignore
+  ws=null; stopHeartbeat();
+  connected=false; peerHere=false; peerSpeaking=false;
+  pill('pillPeer','No partner');
+  if(!wantConnect){ pill('pillNet','Offline'); return; }
+  retry++;
+  if(retry>MAX_RETRY){
+    wantConnect=false;
+    pill('pillNet','Gave up','bad');
+    log(roomFull
+      ? 'room is still full — giving up. Ask your partner to press Leave and try again, or make a new room code.'
+      : 'could not reconnect — giving up. Press Leave, then Connect to try again.','e');
+    return;
+  }
+  let wait=Math.min(30000,1000*Math.pow(2,retry-1));
+  if(roomFull) wait=Math.max(wait,5000);
+  pill('pillNet',roomFull?'Room full':'Reconnecting',roomFull?'bad':'busy');
+  log(`disconnected (${why}) — retry ${retry}/${MAX_RETRY} in ${wait/1000}s`,'y');
+  clearTimeout(retryTimer);
+  retryTimer=setTimeout(()=>{ if(wantConnect) connect(); },wait);
+}
+
 function connect(){
+  killSocket();
   wantConnect=true;
   wsUrl=normRelay($('relayUrl').value);
   if(!wsUrl){ log('no relay address','e'); return; }
   pill('pillNet','Connecting','busy');
-  const fullUrl = wsUrl + '/' + roomId;
-  log('connecting to '+fullUrl);
-  try{ ws=new WebSocket(fullUrl); }
+  log('connecting to '+wsUrl+'/'+roomId.slice(0,8)+'…');
+  let sock;
+  try{ sock=new WebSocket(wsUrl+'/'+roomId+'?c='+clientId); }
   catch(e){ log('bad relay address: '+e.message,'e'); pill('pillNet','Bad address','bad'); return; }
+  ws=sock;
 
-  ws.onopen=()=>{
-    connected=true; retry=0;
+  sock.onopen=()=>{
+    if(sock!==ws) return;
+    connected=true; lastRx=Date.now();
     pill('pillNet','Connected','live');
     log('relay connected','g');
-    ws.send(JSON.stringify({v:1,type:'join',roomId}));
+    sock.send(JSON.stringify({v:1,type:'join',roomId,cid:clientId}));
+    startHeartbeat(sock);
   };
-  ws.onmessage=async ev=>{
+  sock.onmessage=async ev=>{
+    if(sock!==ws) return;
+    lastRx=Date.now();
     let m; try{ m=JSON.parse(ev.data); }catch{ return; }
+    if(m.type==='pong') return;
     if(m.type==='joined'){
+      roomFull=false;
+      clearTimeout(stableTimer); stableTimer=setTimeout(()=>{ retry=0; },10000);
       log(`joined room (${m.peers} partner present)`,'g');
       if(m.peers>0){ peerHere=true; pill('pillPeer','Partner here','live'); }
       await sendData({type:'hello',name:$('myName').value.trim()||'Partner',
-                      hasKey:!!myKey(),version:'2.0'}).catch(()=>{});
+                      hasKey:!!myKey(),version:APP_VER}).catch(()=>{});
       return;
     }
     if(m.type==='peer-joined'){
       peerHere=true; pill('pillPeer','Partner here','live'); log('partner joined','g');
       await sendData({type:'hello',name:$('myName').value.trim()||'Partner',
-                      hasKey:!!myKey(),version:'2.0'}).catch(()=>{});
+                      hasKey:!!myKey(),version:APP_VER}).catch(()=>{});
       return;
     }
     if(m.type==='peer-left'){
       peerHere=false; peerSpeaking=false;
       pill('pillPeer','Partner gone','bad'); log('partner left','y'); return;
     }
-    if(m.type==='room-full'){ log('room already has two people','e'); pill('pillNet','Room full','bad'); return; }
+    if(m.type==='room-full'){ roomFull=true; log('room already has two people','e'); pill('pillNet','Room full','bad'); return; }
     if(m.type==='error'){ log('relay error: '+(m.code||''),'e'); return; }
     if(m.type!=='data') return;
 
@@ -735,24 +849,23 @@ function connect(){
     catch(e){ log('could not decrypt — room codes do not match','e'); return; }
     handlePayload(p);
   };
-  ws.onclose=()=>{
-    connected=false; peerHere=false; peerSpeaking=false;
-    pill('pillPeer','No partner');
-    if(!wantConnect){ pill('pillNet','Offline'); return; }
-    retry=Math.min(retry+1,6);
-    const wait=Math.min(30000,1000*Math.pow(2,retry-1));
-    pill('pillNet','Reconnecting','busy');
-    log(`disconnected — retrying in ${wait/1000}s`,'y');
-    clearTimeout(retryTimer);
-    retryTimer=setTimeout(()=>{ if(wantConnect) connect(); },wait);
+  sock.onclose=ev=>{
+    if(sock!==ws) return;
+    log(`socket closed (code ${ev.code}${ev.reason?' "'+ev.reason+'"':''})`);
+    socketGone(sock,'closed');
   };
-  ws.onerror=()=>{ log('relay socket error','e'); };
+  sock.onerror=()=>{ if(sock===ws) log('relay socket error','e'); };
 }
 
 async function handlePayload(p){
+  if(p.cid && p.cid===clientId){
+    echoDropped++;
+    if(echoDropped<=3||echoDropped%20===0) log(`ignored my own message echoed back (#${echoDropped}) — this tab has a duplicate connection`,'y');
+    return;
+  }
   if(p.type==='hello'){
     peerName=p.name||'Partner';
-    log(`partner is "${peerName}" (${p.hasKey?'has':'no'} API key)`);
+    log(`partner is "${peerName}" (${p.hasKey?'has':'no'} API key${p.version?', app v'+p.version:', old app version'})`);
     pill('pillPeer',peerName,'live');
     return;
   }
@@ -867,7 +980,13 @@ $('btnConnect').addEventListener('click',async()=>{
   if(code.length!==12){ log('room code must be 12 characters','e'); return; }
   if(!$('relayUrl').value.trim()){ log('enter the relay address','e'); return; }
 
+  if(wantConnect && ws && ws.readyState<=1 && code===roomCode){
+    log('already connected to this room — ignoring second Connect','y');
+    $('screenConnect').classList.add('hidden'); $('screenSession').classList.remove('hidden'); $('btnPanel').textContent='Setup';
+    return;
+  }
   roomCode=code;
+  retry=0; roomFull=false; echoDropped=0;
   roomKey=await deriveKey(code);
   roomId=await makeRoomId(code);
   saveSettings();
@@ -888,15 +1007,16 @@ $('btnPanel').addEventListener('click',()=>{
 $('btnMic').addEventListener('click',()=>{ micOn?micStop():micStart(); });
 
 $('btnLeave').addEventListener('click',()=>{
-  wantConnect=false; clearTimeout(retryTimer);
-  try{ws&&ws.close()}catch(e){}
+  wantConnect=false; killSocket();
   micStop();
   pill('pillNet','Offline'); pill('pillPeer','No partner');
   $('screenConnect').classList.remove('hidden');
   $('screenSession').classList.add('hidden');
   log('left the session');
+  saveLog(true);
 });
 
+$('btnSaveLog').addEventListener('click',()=>saveLog(false));
 $('btnSave').addEventListener('click',()=>{
   if(!history.length){ log('nothing to save'); return; }
   const lines=history.map(h=>`[${h.time}] ${h.who} (${h.detected})\n  EN: ${h.en}\n  UK: ${h.uk}\n`);
@@ -934,7 +1054,8 @@ if(!$('relayUrl').value){ $('relayUrl').value='https://balakun-relay.balakun-rel
 })();
 
 stats();
-log('Balakun Live Translator v2.1 ready');
+log('Balakun Live Translator v'+APP_VER+' ready');
+if(prevLogText) log('a log from an earlier session was never saved — press "Save log" to keep it','y');
 if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
   log('this browser has no microphone support — use Chrome or Edge','e');
 }
